@@ -23,6 +23,27 @@ function decodeDirName(dirName) {
   return dirName.replace(/^-/, '/').replace(/-/g, '/');
 }
 
+function aggregateTokensFromJsonl(filePath) {
+  let inputTokens = 0, outputTokens = 0, cacheRead = 0, cacheCreation = 0;
+  try {
+    const content = fs.readFileSync(filePath, 'utf-8');
+    for (const line of content.split('\n')) {
+      if (!line.trim()) continue;
+      try {
+        const msg = JSON.parse(line);
+        const usage = msg.usage || msg.message?.usage;
+        if (usage) {
+          inputTokens += usage.input_tokens || 0;
+          outputTokens += usage.output_tokens || 0;
+          cacheRead += usage.cache_read_input_tokens || 0;
+          cacheCreation += usage.cache_creation_input_tokens || 0;
+        }
+      } catch { /* skip malformed lines */ }
+    }
+  } catch { /* file read error */ }
+  return { inputTokens, outputTokens, cacheRead, cacheCreation };
+}
+
 // GET /api/stats — full stats-cache.json
 app.get('/api/stats', (req, res) => {
   const stats = readJSON(STATS_FILE);
@@ -55,37 +76,52 @@ app.get('/api/projects', (req, res) => {
       const projectPath = path.join(PROJECTS_DIR, dirName);
       const decodedPath = decodeDirName(dirName);
 
-      // Count session directories (UUIDs inside project dir)
       let sessionCount = 0;
       let subagentCount = 0;
+      let totalMessages = 0;
+      let totalInputTokens = 0, totalOutputTokens = 0;
+      let totalCacheRead = 0, totalCacheCreation = 0;
+
       try {
         const entries = fs.readdirSync(projectPath);
+
         for (const entry of entries) {
           const entryPath = path.join(projectPath, entry);
           if (entry === 'sessions-index.json') continue;
-          if (fs.statSync(entryPath).isDirectory()) {
+
+          // Count .jsonl session files and aggregate tokens
+          if (entry.endsWith('.jsonl')) {
             sessionCount++;
-            // Count subagents inside session
+            const tokens = aggregateTokensFromJsonl(entryPath);
+            totalInputTokens += tokens.inputTokens;
+            totalOutputTokens += tokens.outputTokens;
+            totalCacheRead += tokens.cacheRead;
+            totalCacheCreation += tokens.cacheCreation;
+          }
+
+          // Count subagents in session directories
+          if (fs.statSync(entryPath).isDirectory()) {
             const subagentsDir = path.join(entryPath, 'subagents');
             if (fs.existsSync(subagentsDir)) {
-              subagentCount += fs.readdirSync(subagentsDir).filter(f => f.endsWith('.jsonl')).length;
+              const subFiles = fs.readdirSync(subagentsDir).filter(f => f.endsWith('.jsonl'));
+              subagentCount += subFiles.length;
+              for (const sf of subFiles) {
+                const tokens = aggregateTokensFromJsonl(path.join(subagentsDir, sf));
+                totalInputTokens += tokens.inputTokens;
+                totalOutputTokens += tokens.outputTokens;
+                totalCacheRead += tokens.cacheRead;
+                totalCacheCreation += tokens.cacheCreation;
+              }
             }
           }
         }
       } catch { /* ignore */ }
 
-      // Read sessions-index.json for richer data
-      let totalMessages = 0;
-      let totalTokens = 0;
+      // Enrich message count from sessions-index if available
       const sessionsIndex = readJSON(path.join(projectPath, 'sessions-index.json'));
-      if (sessionsIndex && Array.isArray(sessionsIndex.sessions)) {
-        sessionCount = Math.max(sessionCount, sessionsIndex.sessions.length);
-        for (const s of sessionsIndex.sessions) {
+      if (sessionsIndex && Array.isArray(sessionsIndex.entries)) {
+        for (const s of sessionsIndex.entries) {
           totalMessages += s.messageCount || 0;
-          if (s.tokenUsage) {
-            totalTokens += (s.tokenUsage.input || 0) + (s.tokenUsage.output || 0)
-              + (s.tokenUsage.cacheRead || 0) + (s.tokenUsage.cacheCreation || 0);
-          }
         }
       }
 
@@ -95,7 +131,11 @@ app.get('/api/projects', (req, res) => {
         sessionCount,
         subagentCount,
         totalMessages,
-        totalTokens
+        totalTokens: totalInputTokens + totalOutputTokens + totalCacheRead + totalCacheCreation,
+        inputTokens: totalInputTokens,
+        outputTokens: totalOutputTokens,
+        cacheRead: totalCacheRead,
+        cacheCreation: totalCacheCreation
       };
     });
 
