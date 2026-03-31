@@ -1,0 +1,16 @@
+{
+  "name": "claude-usage",
+  "version": "1.0.0",
+  "description": "Token usage dashboard for Claude Code",
+  "main": "server.js",
+  "bin": {
+    "claude-usage": "./bin/claude-usage"
+  },
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.0"
+  },
+  "license": "MIT"
+}

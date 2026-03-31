@@ -1,0 +1,10 @@
+{
+  "name": "claude-usage",
+  "description": "Token usage dashboard for Claude Code — view usage by model, day, hour, and project",
+  "version": "1.0.0",
+  "author": {
+    "name": "ty"
+  },
+  "license": "MIT",
+  "keywords": ["usage", "tokens", "dashboard", "analytics"]
+}

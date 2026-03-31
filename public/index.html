@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Claude Code Usage Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #0d1117;
+    --card: #161b22;
+    --border: #30363d;
+    --text: #e6edf3;
+    --text-muted: #8b949e;
+    --accent: #58a6ff;
+    --accent2: #f78166;
+    --accent3: #7ee787;
+    --accent4: #d2a8ff;
+    --accent5: #ffa657;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    padding: 24px;
+    line-height: 1.5;
+  }
+  h1 { font-size: 24px; margin-bottom: 8px; }
+  .subtitle { color: var(--text-muted); margin-bottom: 24px; font-size: 14px; }
+  .filter-bar {
+    display: flex; gap: 8px; margin-bottom: 24px; flex-wrap: wrap; align-items: center;
+  }
+  .filter-bar button {
+    background: var(--card); color: var(--text-muted); border: 1px solid var(--border);
+    padding: 6px 16px; border-radius: 6px; cursor: pointer; font-size: 13px;
+    transition: all 0.2s;
+  }
+  .filter-bar button.active, .filter-bar button:hover {
+    color: var(--accent); border-color: var(--accent); background: #1a2332;
+  }
+  .cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px;
+    margin-bottom: 32px;
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+  }
+  .card-label { color: var(--text-muted); font-size: 13px; margin-bottom: 4px; }
+  .card-value { font-size: 28px; font-weight: 700; }
+  .card-value.accent { color: var(--accent); }
+  .card-value.accent2 { color: var(--accent2); }
+  .card-value.accent3 { color: var(--accent3); }
+  .card-value.accent4 { color: var(--accent4); }
+  .card-value.accent5 { color: var(--accent5); }
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+    margin-bottom: 32px;
+  }
+  .grid-full { grid-column: 1 / -1; }
+  .chart-box {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+  }
+  .chart-box h2 { font-size: 16px; margin-bottom: 16px; }
+  .chart-container { position: relative; width: 100%; }
+  .chart-container.tall { height: 350px; }
+  .chart-container.medium { height: 280px; }
+  .table-wrap { overflow-x: auto; }
+  table {
+    width: 100%; border-collapse: collapse; font-size: 13px; min-width: 600px;
+  }
+  th, td {
+    text-align: left; padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  th {
+    color: var(--text-muted); font-weight: 600; cursor: pointer;
+    user-select: none; font-size: 12px; text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  th:hover { color: var(--accent); }
+  td { font-variant-numeric: tabular-nums; }
+  tr:hover td { background: rgba(88,166,255,0.05); }
+  .token-num { color: var(--accent); }
+  .sort-arrow { margin-left: 4px; font-size: 10px; }
+  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+  .loading {
+    display: flex; align-items: center; justify-content: center;
+    height: 200px; color: var(--text-muted);
+  }
+</style>
+</head>
+<body>
+
+<h1>Claude Code Usage Dashboard</h1>
+<div class="subtitle" id="subtitle">Loading...</div>
+
+<div class="filter-bar">
+  <span style="color:var(--text-muted);font-size:13px;">Time Range:</span>
+  <button data-range="7" onclick="setRange(7)">Last 7 days</button>
+  <button data-range="30" onclick="setRange(30)">Last 30 days</button>
+  <button data-range="90" onclick="setRange(90)">Last 90 days</button>
+  <button data-range="0" onclick="setRange(0)">All time</button>
+</div>
+
+<!-- Overview Cards -->
+<div class="cards" id="cards"></div>
+
+<!-- Charts Grid -->
+<div class="grid">
+  <div class="chart-box grid-full">
+    <h2>Daily Token Usage by Model</h2>
+    <div class="chart-container tall"><canvas id="dailyTokenChart"></canvas></div>
+  </div>
+  <div class="chart-box">
+    <h2>Model Usage Proportion</h2>
+    <div class="chart-container medium"><canvas id="modelPieChart"></canvas></div>
+  </div>
+  <div class="chart-box">
+    <h2>Hourly Activity Distribution</h2>
+    <div class="chart-container medium"><canvas id="hourlyChart"></canvas></div>
+  </div>
+  <div class="chart-box grid-full">
+    <h2>Project Statistics</h2>
+    <div class="chart-container tall"><canvas id="projectChart"></canvas></div>
+  </div>
+  <div class="chart-box grid-full">
+    <h2>Daily Activity</h2>
+    <div id="dailyTable"></div>
+  </div>
+  <div class="chart-box grid-full">
+    <h2>Token Detail by Model</h2>
+    <div id="tokenTable"></div>
+  </div>
+  <div class="chart-box grid-full">
+    <h2>Project Detail</h2>
+    <div id="projectTable"></div>
+  </div>
+</div>
+
+<script>
+const MODEL_COLORS = {
+  'claude-opus-4-6': '#d2a8ff',
+  'claude-sonnet-4-6': '#58a6ff',
+  'claude-sonnet-4-5-20250929': '#7ee787',
+  'claude-haiku-4-5-20251001': '#ffa657',
+  'MiniMax-M2.5': '#f78166',
+};
+const DEFAULT_COLOR = '#8b949e';
+let stats = null;
+let projects = null;
+let currentRange = 30;
+let charts = {};
+
+function formatNum(n) {
+  if (n == null) return '0';
+  if (n >= 1e9) return (n / 1e9).toFixed(1) + 'B';
+  if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+  if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
+  return n.toLocaleString();
+}
+
+function shortModel(name) {
+  return name.replace('claude-', '').replace('-20250929', '').replace('-20251001', '');
+}
+
+function getColor(model) {
+  return MODEL_COLORS[model] || DEFAULT_COLOR;
+}
+
+function filterByRange(data, days) {
+  if (!days || days === 0) return data;
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - days);
+  const cutoffStr = cutoff.toISOString().slice(0, 10);
+  return data.filter(d => d.date >= cutoffStr);
+}
+
+function setRange(days) {
+  currentRange = days;
+  document.querySelectorAll('.filter-bar button').forEach(b => {
+    b.classList.toggle('active', parseInt(b.dataset.range) === days);
+  });
+  render();
+}
+
+async function load() {
+  const [statsRes, projectsRes] = await Promise.all([
+    fetch('/api/stats'), fetch('/api/projects')
+  ]);
+  stats = await statsRes.json();
+  projects = await projectsRes.json();
+  render();
+}
+
+function render() {
+  renderCards();
+  renderDailyTokenChart();
+  renderModelPie();
+  renderHourlyChart();
+  renderProjectChart();
+  renderDailyTable();
+  renderTokenTable();
+  renderProjectTable();
+
+  const first = stats.firstSessionDate ? new Date(stats.firstSessionDate).toLocaleDateString('zh-CN') : 'N/A';
+  const last = stats.lastComputedDate || 'N/A';
+  document.getElementById('subtitle').textContent =
+    `Data from ${first} to ${last} | ${stats.totalSessions} sessions`;
+}
+
+function renderCards() {
+  const activity = filterByRange(stats.dailyActivity || [], currentRange);
+  const totalMessages = activity.reduce((s, d) => s + d.messageCount, 0);
+  const totalSessions = activity.reduce((s, d) => s + d.sessionCount, 0);
+  const totalToolCalls = activity.reduce((s, d) => s + d.toolCallCount, 0);
+
+  const tokenData = filterByRange(stats.dailyModelTokens || [], currentRange);
+  let totalTokens = 0;
+  tokenData.forEach(d => {
+    Object.values(d.tokensByModel).forEach(v => totalTokens += v);
+  });
+
+  const totalAllTimeTokens = Object.values(stats.modelUsage || {}).reduce((s, m) => {
+    return s + (m.inputTokens || 0) + (m.outputTokens || 0) +
+           (m.cacheReadInputTokens || 0) + (m.cacheCreationInputTokens || 0);
+  }, 0);
+
+  const cardsHTML = `
+    <div class="card"><div class="card-label">Sessions (range)</div><div class="card-value accent">${formatNum(totalSessions)}</div></div>
+    <div class="card"><div class="card-label">Messages (range)</div><div class="card-value accent2">${formatNum(totalMessages)}</div></div>
+    <div class="card"><div class="card-label">Tokens (range)</div><div class="card-value accent3">${formatNum(totalTokens)}</div></div>
+    <div class="card"><div class="card-label">Tool Calls (range)</div><div class="card-value accent4">${formatNum(totalToolCalls)}</div></div>
+    <div class="card"><div class="card-label">All-time Tokens</div><div class="card-value accent5">${formatNum(totalAllTimeTokens)}</div></div>
+  `;
+  document.getElementById('cards').innerHTML = cardsHTML;
+}
+
+function renderDailyTokenChart() {
+  const data = filterByRange(stats.dailyModelTokens || [], currentRange);
+  const allModels = new Set();
+  data.forEach(d => Object.keys(d.tokensByModel).forEach(m => allModels.add(m)));
+  const models = [...allModels];
+  const labels = data.map(d => d.date);
+
+  const datasets = models.map(model => ({
+    label: shortModel(model),
+    data: data.map(d => d.tokensByModel[model] || 0),
+    backgroundColor: getColor(model),
+    borderRadius: 3,
+  }));
+
+  if (charts.daily) charts.daily.destroy();
+  charts.daily = new Chart(document.getElementById('dailyTokenChart'), {
+    type: 'bar',
+    data: { labels, datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { labels: { color: '#8b949e', usePointStyle: true, pointStyle: 'circle' } },
+        tooltip: {
+          callbacks: {
+            label: ctx => `${ctx.dataset.label}: ${formatNum(ctx.raw)} tokens`
+          }
+        }
+      },
+      scales: {
+        x: { stacked: true, ticks: { color: '#8b949e', maxRotation: 45 }, grid: { color: '#21262d' } },
+        y: { stacked: true, ticks: { color: '#8b949e', callback: v => formatNum(v) }, grid: { color: '#21262d' } }
+      }
+    }
+  });
+}
+
+function renderModelPie() {
+  const usage = stats.modelUsage || {};
+  const labels = Object.keys(usage).map(shortModel);
+  const totals = Object.values(usage).map(m =>
+    (m.inputTokens || 0) + (m.outputTokens || 0) +
+    (m.cacheReadInputTokens || 0) + (m.cacheCreationInputTokens || 0)
+  );
+  const colors = Object.keys(usage).map(getColor);
+
+  if (charts.pie) charts.pie.destroy();
+  charts.pie = new Chart(document.getElementById('modelPieChart'), {
+    type: 'doughnut',
+    data: {
+      labels,
+      datasets: [{ data: totals, backgroundColor: colors, borderColor: '#161b22', borderWidth: 2 }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'right', labels: { color: '#8b949e', usePointStyle: true, pointStyle: 'circle', padding: 16 } },
+        tooltip: {
+          callbacks: {
+            label: ctx => {
+              const total = ctx.dataset.data.reduce((a, b) => a + b, 0);
+              const pct = ((ctx.raw / total) * 100).toFixed(1);
+              return `${ctx.label}: ${formatNum(ctx.raw)} (${pct}%)`;
+            }
+          }
+        }
+      }
+    }
+  });
+}
+
+function renderHourlyChart() {
+  const hours = stats.hourCounts || {};
+  const labels = Array.from({ length: 24 }, (_, i) => `${i}:00`);
+  const data = labels.map((_, i) => hours[i] || 0);
+
+  if (charts.hourly) charts.hourly.destroy();
+  charts.hourly = new Chart(document.getElementById('hourlyChart'), {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        label: 'Sessions',
+        data,
+        backgroundColor: data.map(v => v > 0 ? '#58a6ff' : '#21262d'),
+        borderRadius: 3,
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: '#8b949e' }, grid: { color: '#21262d' } },
+        y: { ticks: { color: '#8b949e' }, grid: { color: '#21262d' } }
+      }
+    }
+  });
+}
+
+function renderProjectChart() {
+  if (!projects || !projects.length) return;
+  const top = projects.slice(0, 15);
+  const labels = top.map(p => {
+    const parts = p.project.split('/');
+    return parts.slice(-2).join('/');
+  });
+
+  if (charts.project) charts.project.destroy();
+  charts.project = new Chart(document.getElementById('projectChart'), {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        label: 'Sessions',
+        data: top.map(p => p.sessionCount),
+        backgroundColor: '#58a6ff',
+        borderRadius: 3,
+      }, {
+        label: 'Subagents',
+        data: top.map(p => p.subagentCount),
+        backgroundColor: '#d2a8ff',
+        borderRadius: 3,
+      }]
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { labels: { color: '#8b949e', usePointStyle: true, pointStyle: 'circle' } }
+      },
+      scales: {
+        x: { ticks: { color: '#8b949e' }, grid: { color: '#21262d' } },
+        y: { ticks: { color: '#8b949e', font: { size: 11 } }, grid: { display: false } }
+      }
+    }
+  });
+}
+
+// Sortable table helper
+function makeSortableTable(containerId, columns, rows, defaultSort, defaultDir) {
+  let sortCol = defaultSort;
+  let sortDir = defaultDir || 'desc';
+
+  function renderTable() {
+    const sorted = [...rows].sort((a, b) => {
+      const av = a[sortCol], bv = b[sortCol];
+      if (typeof av === 'string') return sortDir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
+      return sortDir === 'asc' ? av - bv : bv - av;
+    });
+
+    let html = '<div class="table-wrap"><table><thead><tr>';
+    columns.forEach(col => {
+      const arrow = sortCol === col.key ? (sortDir === 'asc' ? '&#9650;' : '&#9660;') : '';
+      html += `<th data-col="${col.key}">${col.label}<span class="sort-arrow">${arrow}</span></th>`;
+    });
+    html += '</tr></thead><tbody>';
+    sorted.forEach(row => {
+      html += '<tr>';
+      columns.forEach(col => {
+        const v = row[col.key];
+        const cls = col.numeric ? ' class="token-num"' : '';
+        html += `<td${cls}>${col.format ? col.format(v) : v}</td>`;
+      });
+      html += '</tr>';
+    });
+    html += '</tbody></table></div>';
+
+    const container = document.getElementById(containerId);
+    container.innerHTML = html;
+    container.querySelectorAll('th').forEach(th => {
+      th.addEventListener('click', () => {
+        const col = th.dataset.col;
+        if (sortCol === col) sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+        else { sortCol = col; sortDir = 'desc'; }
+        renderTable();
+      });
+    });
+  }
+  renderTable();
+}
+
+function renderDailyTable() {
+  const data = filterByRange(stats.dailyActivity || [], currentRange);
+  const rows = data.map(d => ({
+    date: d.date,
+    messages: d.messageCount,
+    sessions: d.sessionCount,
+    toolCalls: d.toolCallCount
+  }));
+  makeSortableTable('dailyTable', [
+    { key: 'date', label: 'Date' },
+    { key: 'messages', label: 'Messages', numeric: true, format: formatNum },
+    { key: 'sessions', label: 'Sessions', numeric: true, format: formatNum },
+    { key: 'toolCalls', label: 'Tool Calls', numeric: true, format: formatNum },
+  ], rows, 'date', 'desc');
+}
+
+function renderTokenTable() {
+  const usage = stats.modelUsage || {};
+  const rows = Object.entries(usage).map(([model, m]) => ({
+    model: shortModel(model),
+    input: m.inputTokens || 0,
+    output: m.outputTokens || 0,
+    cacheRead: m.cacheReadInputTokens || 0,
+    cacheCreation: m.cacheCreationInputTokens || 0,
+    total: (m.inputTokens || 0) + (m.outputTokens || 0) +
+           (m.cacheReadInputTokens || 0) + (m.cacheCreationInputTokens || 0),
+  }));
+  makeSortableTable('tokenTable', [
+    { key: 'model', label: 'Model' },
+    { key: 'input', label: 'Input Tokens', numeric: true, format: formatNum },
+    { key: 'output', label: 'Output Tokens', numeric: true, format: formatNum },
+    { key: 'cacheRead', label: 'Cache Read', numeric: true, format: formatNum },
+    { key: 'cacheCreation', label: 'Cache Creation', numeric: true, format: formatNum },
+    { key: 'total', label: 'Total', numeric: true, format: formatNum },
+  ], rows, 'total', 'desc');
+}
+
+function renderProjectTable() {
+  if (!projects) return;
+  const rows = projects.map(p => ({
+    project: p.project,
+    sessions: p.sessionCount,
+    subagents: p.subagentCount,
+    messages: p.totalMessages,
+    tokens: p.totalTokens,
+  }));
+  makeSortableTable('projectTable', [
+    { key: 'project', label: 'Project' },
+    { key: 'sessions', label: 'Sessions', numeric: true, format: formatNum },
+    { key: 'subagents', label: 'Subagents', numeric: true, format: formatNum },
+    { key: 'messages', label: 'Messages', numeric: true, format: formatNum },
+    { key: 'tokens', label: 'Tokens', numeric: true, format: formatNum },
+  ], rows, 'sessions', 'desc');
+}
+
+load();
+// Set initial active button
+document.querySelector('.filter-bar button[data-range="30"]').classList.add('active');
+</script>
+</body>
+</html>
