@@ -8,14 +8,13 @@ allowed-tools: [Bash]
 
 Launch the Claude Code usage dashboard to view token usage statistics by model, day, hour, and project.
 
-Run the following command to start the dashboard server and open it in the browser:
+Find the installed plugin path and start the server:
 
 ```bash
-cd ~/.claude/plugins/claude-usage && npm start
-```
-
-If the plugin is not installed at that location, try:
-
-```bash
-node $ARGUMENTS/server.js
+PLUGIN_DIR=$(find ~/.claude/plugins/cache -path "*/claude-usage/*/server.js" -print -quit 2>/dev/null | xargs dirname)
+if [ -z "$PLUGIN_DIR" ]; then
+  echo "claude-usage plugin not found. Install it with: claude plugin install claude-usage@wangtyonly"
+  exit 1
+fi
+cd "$PLUGIN_DIR" && npm install --silent 2>/dev/null && node server.js
 ```
