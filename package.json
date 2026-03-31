@@ -1,6 +1,6 @@
 {
   "name": "claude-usage",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Token usage dashboard for Claude Code",
   "main": "server.js",
   "bin": {
