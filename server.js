@@ -23,14 +23,21 @@ function decodeDirName(dirName) {
   return dirName.replace(/^-/, '/').replace(/-/g, '/');
 }
 
-function aggregateTokensFromJsonl(filePath) {
+function aggregateFromJsonl(filePath) {
   let inputTokens = 0, outputTokens = 0, cacheRead = 0, cacheCreation = 0;
+  let messageCount = 0;
   try {
     const content = fs.readFileSync(filePath, 'utf-8');
     for (const line of content.split('\n')) {
       if (!line.trim()) continue;
       try {
         const msg = JSON.parse(line);
+        // Count user and assistant messages
+        const role = msg.message?.role || msg.type;
+        if (role === 'user' || role === 'assistant') {
+          messageCount++;
+        }
+        // Aggregate token usage
         const usage = msg.usage || msg.message?.usage;
         if (usage) {
           inputTokens += usage.input_tokens || 0;
@@ -41,7 +48,7 @@ function aggregateTokensFromJsonl(filePath) {
       } catch { /* skip malformed lines */ }
     }
   } catch { /* file read error */ }
-  return { inputTokens, outputTokens, cacheRead, cacheCreation };
+  return { inputTokens, outputTokens, cacheRead, cacheCreation, messageCount };
 }
 
 // GET /api/stats — full stats-cache.json
@@ -89,14 +96,15 @@ app.get('/api/projects', (req, res) => {
           const entryPath = path.join(projectPath, entry);
           if (entry === 'sessions-index.json') continue;
 
-          // Count .jsonl session files and aggregate tokens
+          // Count .jsonl session files and aggregate tokens + messages
           if (entry.endsWith('.jsonl')) {
             sessionCount++;
-            const tokens = aggregateTokensFromJsonl(entryPath);
-            totalInputTokens += tokens.inputTokens;
-            totalOutputTokens += tokens.outputTokens;
-            totalCacheRead += tokens.cacheRead;
-            totalCacheCreation += tokens.cacheCreation;
+            const stats = aggregateFromJsonl(entryPath);
+            totalInputTokens += stats.inputTokens;
+            totalOutputTokens += stats.outputTokens;
+            totalCacheRead += stats.cacheRead;
+            totalCacheCreation += stats.cacheCreation;
+            totalMessages += stats.messageCount;
           }
 
           // Count subagents in session directories
@@ -106,24 +114,17 @@ app.get('/api/projects', (req, res) => {
               const subFiles = fs.readdirSync(subagentsDir).filter(f => f.endsWith('.jsonl'));
               subagentCount += subFiles.length;
               for (const sf of subFiles) {
-                const tokens = aggregateTokensFromJsonl(path.join(subagentsDir, sf));
-                totalInputTokens += tokens.inputTokens;
-                totalOutputTokens += tokens.outputTokens;
-                totalCacheRead += tokens.cacheRead;
-                totalCacheCreation += tokens.cacheCreation;
+                const stats = aggregateFromJsonl(path.join(subagentsDir, sf));
+                totalInputTokens += stats.inputTokens;
+                totalOutputTokens += stats.outputTokens;
+                totalCacheRead += stats.cacheRead;
+                totalCacheCreation += stats.cacheCreation;
+                totalMessages += stats.messageCount;
               }
             }
           }
         }
       } catch { /* ignore */ }
-
-      // Enrich message count from sessions-index if available
-      const sessionsIndex = readJSON(path.join(projectPath, 'sessions-index.json'));
-      if (sessionsIndex && Array.isArray(sessionsIndex.entries)) {
-        for (const s of sessionsIndex.entries) {
-          totalMessages += s.messageCount || 0;
-        }
-      }
 
       return {
         project: decodedPath,
